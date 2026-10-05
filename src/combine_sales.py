@@ -1,11 +1,13 @@
 from pathlib import Path
 
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, lit, to_date
+from pyspark.sql.functions import col, count, date_format, lit, to_date
+from pyspark.sql.functions import sum as spark_sum
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
+OUTPUT_DIR = PROJECT_ROOT / "output"
 
 
 spark = (
@@ -87,5 +89,34 @@ print(f"Righe valide dopo la pulizia: {sales.count()}")
 
 sales.show(10, truncate=False)
 sales.printSchema()
+
+
+monthly_sales = (
+    sales
+    .withColumn("month", date_format(col("sale_date"), "yyyy-MM"))
+    .withColumn("revenue", col("quantity") * col("unit_price"))
+    .groupBy("country", "month")
+    .agg(
+        count("*").alias("sales_count"),
+        spark_sum("quantity").alias("units_sold"),
+        spark_sum("revenue").alias("revenue"),
+    )
+    .orderBy("country", "month")
+)
+
+monthly_sales.show(30, truncate=False)
+
+sales.write \
+    .mode("overwrite") \
+    .option("header", True) \
+    .csv(str(OUTPUT_DIR / "sales_clean"))
+
+monthly_sales.write \
+    .mode("overwrite") \
+    .option("header", True) \
+    .csv(str(OUTPUT_DIR / "monthly_sales"))
+
+print(f"Vendite pulite salvate in: {OUTPUT_DIR / 'sales_clean'}")
+print(f"Riepilogo mensile salvato in: {OUTPUT_DIR / 'monthly_sales'}")
 
 spark.stop()
